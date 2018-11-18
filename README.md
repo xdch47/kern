@@ -29,7 +29,7 @@ For a standard (amd64/x86) compilation the following steps are necessary:
 
 Initial:
 
-* Create a directory (favored use the name of the host the kernel is used) otherwise set `KHOST` variable 
+* Create a directory (favored use the name of the host the kernel is used) otherwise set `KHOST` variable
 * Create a Makefile and adapt special configuration settings like `KSOURCE_PATH`, `KMAKE_TARGETS` etc.
 * Finally include the template makefile by adding `include ../Makefile.kern`
 * (optional) add a intial kernel configuration in a `defconfig` file (in case the file is missing make defconfig is used)
@@ -38,7 +38,7 @@ Compilation:
 
 * (optional) run `make update_defconfig` in order to update your kernel seed from the currently running kernel (access to /proc/config.gz required)
 * (optional) run other kernel tragets like `make menuconfig`
-* run `make'
+* run `make`
 
 Installation:
 
@@ -48,4 +48,11 @@ Installation:
 
 * amd64: look at the `amd64-host-example/` directory
 * armv7a: look at the `armv7a-odroidhc1-example/` directory
+
+# gentoo
+
+Gentoo users have to set `KBUILD_OUTPUT` in their `make.conf` ("`<kern-git-root>/<hostname or configdir>/linux/kbuild`")
+
+The `gentoo` directory contains *larry the cow* as logo that can be use for the linux kernel
+Additionaly a template for `/etc/portage/env/sys-kernel/gentoo-sources` is provided which replaces the original linux logo and does same cleanup work after removing a the gentoo-source package.
 

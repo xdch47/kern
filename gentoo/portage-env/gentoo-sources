@@ -20,7 +20,7 @@ post_pkg_postrm() {
 
 	CLEAN_UP_DIRS=("${EFREFIX}"/usr/src/linux-${KV_FULL}/scripts/dtc/include-prefixes)
 
-	for clean_up_dir in "${CLEAN_UP_DIRS[@]}" ; do 
+	for clean_up_dir in "${CLEAN_UP_DIRS[@]}" ; do
 		if [[ -d $clean_up_dir ]] ; then
 			rmdir -p $clean_up_dir
 		else
