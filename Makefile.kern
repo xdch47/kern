@@ -1,0 +1,165 @@
+
+# Set hostname for that the kernel should be kbuild.
+# default is the directory name of current location
+KHOST                      ?=    $(notdir $(CURDIR))
+
+# Default linux source directory
+KSOURCE_PATH               ?=    $(shell readlink -e /usr/src/linux)
+KSOURCE_DIRNAME            ?=    $(notdir $(KSOURCE_PATH))
+
+# target directory
+TARGET_LINUX_DIR           ?=    $(CURDIR)/$(KSOURCE_DIRNAME)
+
+# extra make targets
+KMAKE_TARGETS              ?=    bzImage modules
+
+# install targets
+KMAKE_INSTALL_TARGETS      ?=    install modules_install
+
+# kernel build user
+#KBUILD_USER                ?=    portage
+
+# niceness for compile jobs
+NICENESS                   ?=    19
+
+KMAKEFLAGS                 ?=    -j$(shell nproc)
+
+# output directory
+export KBUILD_OUTPUT       ?=    $(TARGET_LINUX_DIR)/kbuild
+
+# kernel config
+export KCONFIG_CONFIG      ?=    $(KBUILD_OUTPUT)/.config
+
+# install path
+IMAGE_PATH                 ?=    $(TARGET_LINUX_DIR)/image
+export INSTALL_PATH        ?=    $(IMAGE_PATH)/boot
+export INSTALL_MOD_PATH    ?=    $(IMAGE_PATH)/
+
+INFO_PATH                  ?=    .info
+
+default: image
+
+define __RUNCMD
+  $(call ECHO,"Executing $(1)") ; MAKEFLAGS=$(KMAKEFLAGS) nice -n $(NICENESS) $(2)
+endef
+
+ifeq ($(shell whoami),root)
+  ifneq ($(KBUILD_USER),)
+    # runcmd use lower privileges to build the kernel
+    RUNCMD = $(call __RUNCMD,$(1),sudo -E -u $(KBUILD_USER) $(1))
+  else
+    RUNCMD = $(call __RUNCMD,$(1),$(1))
+  endif
+else
+  # not root, build as users
+  RUNCMD = $(call __RUNCMD,$(1),$(1))
+endif
+
+ifdef $(NO_COLOR)
+  ECHO   = echo "$(1)"
+else
+  ECHO   = echo -e "\e[1;33m$(1)\e[0m"
+endif
+
+
+ifeq ($(KHOST),$(shell hostname))
+  SSH_HOST_INSTALL ?=
+else
+  SSH_INSTALL_USER ?= root
+  SSH_HOST_INSTALL ?= $(SSH_INSTALL_USER)@$(KHOST)
+endif
+
+SSH_SYNC_USER ?= $(USER)
+SSH_HOST_SYNC ?= $(SSH_SYNC_USER)@$(KHOST)
+
+#
+# build rules (using runcmd to drop privileges, in case of root user)
+#
+update_defconfig:
+ifeq ($(KHOST),$(shell hostname))
+	zcat /proc/config.gz > defconfig
+else
+	ssh $(SSH_HOST_INSTALL) zcat /proc/config.gz > defconfig
+endif
+
+%:
+	$(call RUNCMD,make -C ${KSOURCE_PATH} $@)
+
+$(KCONFIG_CONFIG):
+	@$(call RUNCMD,mkdir -p $(KBUILD_OUTPUT))
+	@if [ -e defconfig ]; then \
+		$(call RUNCMD,cp defconfig $(KCONFIG_CONFIG)) ; \
+	else \
+		$(call RUNCMD,make -C ${KSOURCE_PATH} defconfig) ; \
+	fi
+
+kernelrelease menuconfig: $(KCONFIG_CONFIG)
+	@$(call RUNCMD,make -C $(KSOURCE_PATH) $@)
+
+$(IMAGE_PATH)/$(INFO_PATH):
+	@$(call RUNCMD,mkdir -p $(IMAGE_PATH)/$(INFO_PATH))
+
+kbuild: $(KCONFIG_CONFIG) $(IMAGE_PATH)/$(INFO_PATH)
+	@for target in $(KMAKE_TARGETS) ; do \
+		$(call RUNCMD,make -C ${KSOURCE_PATH} $$target) ; \
+	done
+
+build: kbuild
+
+kimage: build
+	@$(call RUNCMD,ln -sfT $(KSOURCE_DIRNAME) linux)
+	@$(call RUNCMD,mkdir -p $(IMAGE_PATH)/boot)
+	@for install_target in $(KMAKE_INSTALL_TARGETS) ; do \
+		$(call RUNCMD,make -C $(KSOURCE_PATH) $$install_target) ; \
+	done
+
+image: kimage
+	@$(call ECHO,"Image for $(KHOST) is ready at $(IMAGE_PATH)")
+	@$(call RUNCMD,$(SHELL) -c "date --rfc-3339=seconds >> $(IMAGE_PATH)/${INFO_PATH}/image-date")
+
+mergeconfig:
+	cd $(KBUILD_OUTPUT) && \
+	$(call RUNCMD,$(KSOURCE_PATH)/scripts/kconfig/merge_config.sh $(CURDIR)/defconfig $(CURDIR)/$(wildcard *_defconfig))
+
+clean:
+	@$(call RUNCMD,make -C ${KSOURCE_PATH} clean)
+	@$(call RUNCMD,rm -rf $(IMAGE_PATH))
+
+remove-old:
+	@for f in linux-* ; do \
+		if [[ $$f != "$(KSOURCE_DIRNAME)" ]] ; then \
+			$(call RUNCMD,rm -Ir $$f); \
+		fi; \
+	done
+
+mrproper:
+	@if [ -n "$(wildcard linux*)" ] ; then \
+		$(call RUNCMD,rm -Ir $(wildcard linux*)) ; \
+	fi
+
+
+# install rules - higher privileges are necessary
+
+install:
+	@if [ ! -e $(IMAGE_TARGET) ] ; then \
+		$(call ECHO,'Please run `make` first.') ; \
+		false ; \
+	fi
+ifeq ($(KHOST),$(shell hostname))
+	rsync --exclude $(INFO_PATH) -rlK $(IMAGE_PATH)/ /
+else
+	rsync --exclude $(INFO_PATH) -rlK $(IMAGE_PATH)/ $(SSH_HOST_INSTALL):$(DESTDIR)/
+endif
+
+kbuild_sync:
+	ssh $(SSH_HOST_SYNC) "mkdir -p $(KBUILD_OUTPUT)"
+	rsync -rlK $(KBUILD_OUTPUT)/ $(SSH_HOST_SYNC):$(KBUILD_OUTPUT)/
+	ssh $(SSH_HOST_SYNC) "ln -sfT $(KSOURCE_DIRNAME) $(CURDIR)/linux"
+
+grubinstall: install
+	grub-mkconfig -o /boot/grub/grub.cfg
+
+gentooinstall: grubinstall
+	emerge -1 @module-rebuild
+
+.PHONY: default kbuild build kimage image install kbuild_sync clean mrproper grubinstall gentoo_install

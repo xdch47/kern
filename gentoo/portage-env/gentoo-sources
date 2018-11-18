@@ -1,0 +1,32 @@
+
+#
+# add, copy or symlink to /etc/portage/env/sys-kernel/gentoo-sources
+#
+
+post_src_prepare() {
+	# Override linux logo
+	LINUX_LOGO=${LINUX_LOGO:-/var/kern/gentoo/logo/larry-224.ppm}
+	if [[ -f ${LINUX_LOGO} ]]; then
+		cp ${LINUX_LOGO} ${S}/drivers/video/logo/logo_linux_clut224.ppm
+		elog "Linux-Logo has been updated."
+	else
+		ewarn "Linux-Logo ${LINUX_LOGO} does not exist."
+	fi
+}
+
+post_pkg_postrm() {
+	# clean-up directorys
+	#  - remove scripts/dtc/include-prefixes
+
+	CLEAN_UP_DIRS=("${EFREFIX}"/usr/src/linux-${KV_FULL}/scripts/dtc/include-prefixes)
+
+	for clean_up_dir in "${CLEAN_UP_DIRS[@]}" ; do 
+		if [[ -d $clean_up_dir ]] ; then
+			rmdir -p $clean_up_dir
+		else
+			ewarn "Directory ${clean_up_dir} does not exist."
+		fi
+	done
+}
+
+# vim: ft=ebuild
