@@ -17,7 +17,8 @@ KMAKE_TARGETS              ?=    bzImage modules
 KMAKE_INSTALL_TARGETS      ?=    install modules_install
 
 # kernel build user
-#KBUILD_USER                ?=    portage
+KBUILD_USER                ?=    portage
+KBUILD_GROUP               ?=    portage
 
 # niceness for compile jobs
 NICENESS                   ?=    19
@@ -57,7 +58,7 @@ ifneq ($(KBUILD_USER),)
   define MKDIR
     # runcmd use lower privileges set directories permissons
     $(call __MKDIR,$(1)) ;
-	chown -R $(KBUILD_USER) $(1)
+	chown -R $(KBUILD_USER):$(KBUILD_GROUP) $(1)
   endef
 else
   MKDIR = $(call __MKDIR,$(1))
@@ -105,7 +106,10 @@ endif
 %:
 	@$(call RUNCMD,make -C ${KSOURCE_PATH} $@)
 
-$(KCONFIG_CONFIG):
+$(TARGET_LINUX_DIR) $(IMAGE_PATH):
+	$(call MKDIR,$(@))
+
+$(KCONFIG_CONFIG): | $(TARGET_LINUX_DIR)
 	@$(call MKDIR,$(KBUILD_OUTPUT))
 	@if [ -e defconfig ]; then \
 		$(call RUNCMD,cp defconfig $(KCONFIG_CONFIG)) ; \
@@ -116,7 +120,7 @@ $(KCONFIG_CONFIG):
 kernelrelease menuconfig: $(KCONFIG_CONFIG)
 	@$(call RUNCMD,make -C $(KSOURCE_PATH) $@)
 
-$(IMAGE_PATH)/$(INFO_PATH):
+$(IMAGE_PATH)/$(INFO_PATH): | $(IMAGE_PATH)
 	@$(call MKDIR,$(IMAGE_PATH)/$(INFO_PATH))
 
 kbuild: $(KCONFIG_CONFIG) $(IMAGE_PATH)/$(INFO_PATH)
@@ -129,8 +133,9 @@ create_kernel_release_info: kbuild
 
 build: create_kernel_release_info
 
-kimage: build
-	@$(call RUNCMD,ln -sfT $(KSOURCE_DIRNAME) linux)
+
+kimage: build | $(IMAGE_PATH)
+	@ln -sfT $(KSOURCE_DIRNAME) linux
 	@$(call MKDIR,$(IMAGE_PATH)/boot)
 	@for install_target in $(KMAKE_INSTALL_TARGETS) ; do \
 		$(call RUNCMD,make -C $(KSOURCE_PATH) $$install_target) ; \
@@ -167,6 +172,7 @@ remove-old:
 
 mrproper:
 	@if [ -n "$(wildcard linux*)" ] ; then \
+		echo "Removing $(wildcard linux*)..."; \
 		rm -Ir $(wildcard linux*) ; \
 	fi
 
