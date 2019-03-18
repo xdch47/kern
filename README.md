@@ -47,7 +47,8 @@ Installation:
 # EXAMPLES
 
 * amd64: look at the `amd64-host-example/` directory
-* armv7a: look at the `armv7a-odroidhc1-example/` directory
+* amd64 + initramfs: look at the `amd64-host-initramfs-example/` directory
+* armv7a: look at the `armv7a-odroidhc1-example/` directory (use crossdev for cross-compilation)
 
 # gentoo
 
