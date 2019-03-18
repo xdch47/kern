@@ -1,0 +1,58 @@
+
+PS1='\e[1;31m\u\e[0m@\h \W\$ '
+PATH=/sbin:/bin:/usr/sbin:/usr/bin
+
+# parse cmdline and set enviroment vars
+for x in $(cat /proc/cmdline); do
+    case $x in
+        cryptdevice=*)
+            cryptdevice=${x##cryptdevice=}
+            cryptpartdevice=$(findfs ${cryptdevice//:*})
+            cryptmapperdevice=${cryptdevice##*:}
+            ;;
+        root=*)
+            root=${x##root=}
+            ;;
+        rootflags=*)
+            rootflags=${x##rootflags=}
+            ;;
+    esac
+done
+
+decrypt_rootfs() {
+    local exitcode
+    # checks
+    if [[ -z $cryptpartdevice ]] ; then
+        echo 'ERROR: $cryptpartdevice variable is not set!'
+        return 1
+    fi
+    if [[ -z $cryptmapperdevice ]] ; then
+        echo 'ERROR: $cryptmapperdevice variable is not set!'
+        return 1
+    fi
+
+    if [[ -z $root ]] ; then
+        echo 'ERROR: $root variable is not set!'
+        return 1
+    fi
+
+    # decrypt
+    /sbin/cryptsetup luksOpen --allow-discards $cryptpartdevice $cryptmapperdevice
+    exitcode=$?
+
+    # check sucess
+    if [[ $exitcode -ne 0 ]] ; then
+        echo "Decrypting root failed - cryptsetup exit with code $exitcode."
+    else
+        echo "Decrypting root was successful. Bye, bye..."
+        # kill cryptsetup of init script in order to let init continue...
+        killall cryptsetup
+        exit
+    fi
+}
+
+if [[ -n $cryptpartdevice ]] && [[ -n $cryptmapperdevice ]] && [[ -n $root ]] ; then
+    echo "Run \`decrypt_rootfs\` in order to decrypt $cryptpartdevice..."
+else
+    echo "Something is wrong here, init script not working properly... you are in rescue mode, so good luck!"
+fi

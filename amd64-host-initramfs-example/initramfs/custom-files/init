@@ -1,0 +1,121 @@
+#!/bin/busybox sh
+
+rescue_shell() {
+    echo "Error: $1"
+    echo "Dropping to rescue shell."
+    exec sh
+}
+
+/bin/busybox --install -s /bin
+mkdir -p /proc
+mount -t proc proc /proc -o nosuid,noexec,nodev
+
+# mounting ...
+mkdir -p /dev /run /sys
+mount -t devtmpfs dev /dev -o mode=0755,nosuid
+mkdir -p /dev/pts
+mount -t devpts devpts /dev/pts -ogid=5
+mount -t tmpfs run /run -o nosuid,nodev,mode=0755
+mount -t sysfs sys /sys -o nosuid,noexec,nodev
+
+# generate keymap for busybox with loadkeys -b de > de.bmap
+loadkmap < ./usr/keymaps/de.bmap
+#loadkmap < ./usr/keymaps/neo.bmap
+/bin/net-init.sh > /dev/null 2> /dev/null &
+
+# etc
+mkdir -p /etc
+touch /etc/mtab
+echo 'root:x:0:0:root:/root:/bin/sh' > /etc/passwd
+echo 'root:x:0:root' > /etc/group
+echo 'root:*:17365:0:::::' > /etc/shadow
+cat <<EOF > /etc/nsswitch.conf
+passwd: files
+shadow: files
+group: files
+EOF
+
+mkdir -m 700 -p /root/.ssh
+
+echo 'ssh-rsa YOUR-SSH-KEY' >> /root/.ssh/authorized_keys
+
+mkdir -p /newroot
+
+# parse cmdline
+for x in $(cat /proc/cmdline); do
+    case $x in
+        cryptdevice=*)
+            cryptdevice=${x##cryptdevice=}
+            cryptpartdevice=$(findfs ${cryptdevice//:*})
+            cryptmapperdevice=${cryptdevice##*:}
+            ;;
+        root=*)
+            root=${x##root=}
+            ;;
+        rootflags=*)
+            rootflags=${x##rootflags=}
+            ;;
+        rescue*)
+            rescue_shell 'Kernel cmdline contains rescue... so good luck!'
+            ;;
+    esac
+done
+
+mkdir -p /var/log
+touch /var/log/lastlog
+
+if [[ -z $root ]] ; then
+    rescue_shell 'No root device specified. Droping to a rescue shell.'
+fi
+
+if [[ -n $cryptpartdevice ]] ; then
+    if [[ -z $cryptpartdevice ]] ; then
+        rescue_shell 'No cryptpartdevice device specified. Droping to a rescue shell.'
+    fi
+    [[ -z $cryptmapperdevice ]] && cryptmapperdevice="cryptroot"
+    #echo "Waiting for $cryptpartdevice..."
+    timeout=0
+    while ! test -e $cryptpartdevice > /dev/null 2> /dev/null ; do
+        sleep 0.5
+        timeout=$(($timeout + 1))
+        if [[ $timeout == 20 ]] ; then
+            rescue_shell "Device $cryptpartdevice not available."
+        fi
+    done
+    echo "Mounting encryted root $cryptpartdevice..."
+    while ! test -e /dev/mapper/$cryptmapperdevice > /dev/null 2> /dev/null ; do
+        cryptsetup luksOpen --allow-discards $cryptpartdevice $cryptmapperdevice
+        sleep 0.5
+    done
+else
+    #echo "Waiting for $root..."
+    timeout=0
+    while ! test -e $root > /dev/null 2> /dev/null ; do
+        sleep 0.5
+        timeout=$(($timeout + 1))
+        if [[ $timeout == 20 ]] ; then
+            rescue_shell "Device $root not available."
+        fi
+    done
+fi
+
+mount -t btrfs -o ro,$rootflags $root /newroot || rescue_shell "Failed to mount rootfs."
+
+# Clean up & boot the real thing
+for pidfile in /run/*.pid ; do
+    #echo "Killing $pidfile"
+    kill $(cat $pidfile) > /dev/null 2> /dev/null
+done
+
+# kill forked ssh session
+killall dropbear > /dev/null 2> /dev/null
+ip addr flush dev eth0
+
+umount /run
+mount --move /dev /newroot/dev
+umount /sys
+umount /proc
+
+exec switch_root /newroot /sbin/init
+
+# vim: set ft=sh ts=4 sw=4 et:

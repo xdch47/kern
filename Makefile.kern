@@ -30,6 +30,11 @@ export KBUILD_OUTPUT       ?=    $(TARGET_LINUX_DIR)/kbuild
 # kernel config
 export KCONFIG_CONFIG      ?=    $(KBUILD_OUTPUT)/.config
 
+# initramfs config
+INITRAMFS_DIR              ?=    ./initramfs/build/initramfs-linux
+INITRAMFS_COMPRESS         ?=    xz
+INITRAMFS_IMAGE            ?=    ./initramfs/build/initramfs-linux.img.$(INITRAMFS_COMPRESS)
+
 # install path
 IMAGE_PATH                 ?=    $(TARGET_LINUX_DIR)/image
 export INSTALL_PATH        ?=    $(IMAGE_PATH)/boot
@@ -42,6 +47,21 @@ default: image
 define __RUNCMD
   $(call ECHO,"Executing $(1)") ; MAKEFLAGS=$(KMAKEFLAGS) nice -n $(NICENESS) $(2)
 endef
+
+define __MKDIR
+  $(call ECHO,"Creating directory $(1)") ;
+  mkdir -p $(1)
+endef
+
+ifneq ($(KBUILD_USER),)
+  define MKDIR
+    # runcmd use lower privileges set directories permissons
+    $(call __MKDIR,$(1)) ;
+	chown -R $(KBUILD_USER) $(1)
+  endef
+else
+  MKDIR = $(call __MKDIR,$(1))
+endif
 
 ifeq ($(shell whoami),root)
   ifneq ($(KBUILD_USER),)
@@ -83,10 +103,10 @@ else
 endif
 
 %:
-	$(call RUNCMD,make -C ${KSOURCE_PATH} $@)
+	@$(call RUNCMD,make -C ${KSOURCE_PATH} $@)
 
 $(KCONFIG_CONFIG):
-	@$(call RUNCMD,mkdir -p $(KBUILD_OUTPUT))
+	@$(call MKDIR,$(KBUILD_OUTPUT))
 	@if [ -e defconfig ]; then \
 		$(call RUNCMD,cp defconfig $(KCONFIG_CONFIG)) ; \
 	else \
@@ -97,21 +117,33 @@ kernelrelease menuconfig: $(KCONFIG_CONFIG)
 	@$(call RUNCMD,make -C $(KSOURCE_PATH) $@)
 
 $(IMAGE_PATH)/$(INFO_PATH):
-	@$(call RUNCMD,mkdir -p $(IMAGE_PATH)/$(INFO_PATH))
+	@$(call MKDIR,$(IMAGE_PATH)/$(INFO_PATH))
 
 kbuild: $(KCONFIG_CONFIG) $(IMAGE_PATH)/$(INFO_PATH)
 	@for target in $(KMAKE_TARGETS) ; do \
 		$(call RUNCMD,make -C ${KSOURCE_PATH} $$target) ; \
 	done
 
-build: kbuild
+create_kernel_release_info: kbuild
+	@$(call RUNCMD,$(SHELL) -c "make -sC $(KSOURCE_PATH) kernelrelease > $(IMAGE_PATH)/$(INFO_PATH)/kernelrelease")
+
+build: create_kernel_release_info
 
 kimage: build
 	@$(call RUNCMD,ln -sfT $(KSOURCE_DIRNAME) linux)
-	@$(call RUNCMD,mkdir -p $(IMAGE_PATH)/boot)
+	@$(call MKDIR,$(IMAGE_PATH)/boot)
 	@for install_target in $(KMAKE_INSTALL_TARGETS) ; do \
 		$(call RUNCMD,make -C $(KSOURCE_PATH) $$install_target) ; \
 	done
+
+$(INITRAMFS_DIR):
+	@cd ./initramfs && ./create_initrd.sh
+
+$(INITRAMFS_IMAGE): $(INITRAMFS_DIR)
+	@cd ./initramfs  && ./mkinitramfs
+
+initramfs_install: kimage $(INITRAMFS_IMAGE)
+	@$(call RUNCMD,install -m644 $(INITRAMFS_IMAGE) ${IMAGE_PATH}/boot/initramfs-`cat $(IMAGE_PATH)/$(INFO_PATH)/kernelrelease`.img)
 
 image: kimage
 	@$(call ECHO,"Image for $(KHOST) is ready at $(IMAGE_PATH)")
@@ -128,13 +160,14 @@ clean:
 remove-old:
 	@for f in linux-* ; do \
 		if [[ $$f != "$(KSOURCE_DIRNAME)" ]] ; then \
+			$(call ECHO,"Removing $$f");
 			$(call RUNCMD,rm -Ir $$f); \
 		fi; \
 	done
 
 mrproper:
 	@if [ -n "$(wildcard linux*)" ] ; then \
-		$(call RUNCMD,rm -Ir $(wildcard linux*)) ; \
+		rm -Ir $(wildcard linux*) ; \
 	fi
 
 
