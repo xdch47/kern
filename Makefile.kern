@@ -56,8 +56,8 @@ endef
 
 ifneq ($(KBUILD_USER),)
   define MKDIR
-    # runcmd use lower privileges set directories permissons
-    $(call __MKDIR,$(1)) ;
+    # runcmd use lower privileges set directories permissons ; \
+    $(call __MKDIR,$(1)) ; \
 	chown -R $(KBUILD_USER):$(KBUILD_GROUP) $(1)
   endef
 else
@@ -107,7 +107,7 @@ endif
 	@$(call RUNCMD,make -C ${KSOURCE_PATH} $@)
 
 $(TARGET_LINUX_DIR) $(IMAGE_PATH):
-	$(call MKDIR,$(@))
+	@$(call MKDIR,$(@))
 
 $(KCONFIG_CONFIG): | $(TARGET_LINUX_DIR)
 	@$(call MKDIR,$(KBUILD_OUTPUT))
@@ -118,6 +118,12 @@ $(KCONFIG_CONFIG): | $(TARGET_LINUX_DIR)
 	fi
 
 kernelrelease menuconfig: $(KCONFIG_CONFIG)
+	@$(call RUNCMD,make -C $(KSOURCE_PATH) $@)
+
+xconfig: $(KCONFIG_CONFIG)
+ifneq ($(KBUILD_USER),)
+	@xhost si:localuser:$(KBUILD_USER)
+endif
 	@$(call RUNCMD,make -C $(KSOURCE_PATH) $@)
 
 $(IMAGE_PATH)/$(INFO_PATH): | $(IMAGE_PATH)
@@ -132,7 +138,6 @@ create_kernel_release_info: kbuild
 	@$(call RUNCMD,$(SHELL) -c "make -sC $(KSOURCE_PATH) kernelrelease > $(IMAGE_PATH)/$(INFO_PATH)/kernelrelease")
 
 build: create_kernel_release_info
-
 
 kimage: build | $(IMAGE_PATH)
 	@ln -sfT $(KSOURCE_DIRNAME) linux

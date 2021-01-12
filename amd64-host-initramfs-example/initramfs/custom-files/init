@@ -19,9 +19,12 @@ mount -t tmpfs run /run -o nosuid,nodev,mode=0755
 mount -t sysfs sys /sys -o nosuid,noexec,nodev
 
 # generate keymap for busybox with loadkeys -b de > de.bmap
-loadkmap < ./usr/keymaps/de.bmap
-#loadkmap < ./usr/keymaps/neo.bmap
+loadkmap < /usr/keymaps/de.bmap
+#loadkmap < /usr/keymaps/neo.bmap
 /bin/net-init.sh > /dev/null 2> /dev/null &
+
+# font
+#font=/usr/share/consolefonts/ter-112n.psf.gz
 
 # etc
 mkdir -p /etc
@@ -116,6 +119,8 @@ mount --move /dev /newroot/dev
 umount /sys
 umount /proc
 
+clear
+[[ -n "$font" ]] && setfont $font -C /dev/console
 exec switch_root /newroot /sbin/init
 
 # vim: set ft=sh ts=4 sw=4 et:
