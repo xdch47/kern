@@ -18,15 +18,16 @@ IMAGE_DIR=build/${1:-initramfs-linux}
 mkdir -p $IMAGE_DIR
 # base layout
 if [[ $(uname -m) = "x86_64" ]] ; then
-    #mkdir -p $IMAGE_DIR/usr/lib
-    #ln -s usr/lib $IMAGE_DIR/lib
+    mkdir -p $IMAGE_DIR/usr/lib
+    ln -s usr/lib $IMAGE_DIR/lib
 
     mkdir -p $IMAGE_DIR/usr/lib64
     ln -s usr/lib64 $IMAGE_DIR/lib64
 else
     mkdir -p $IMAGE_DIR/lib
 fi
-mkdir -p $IMAGE_DIR/usr/{bin,sbin}
+mkdir -p $IMAGE_DIR/usr/bin
+ln -s bin $IMAGE_DIR/usr/sbin
 ln -s usr/bin $IMAGE_DIR/bin
 ln -s usr/sbin $IMAGE_DIR/sbin
 
@@ -68,3 +69,4 @@ if [[ ! -f ${libgccpath} ]]; then
     libgccpath="/usr/lib/gcc/*/*/libgcc_s.so.1"
 fi
 
+cp $libgccpath ${IMAGE_DIR}/lib
